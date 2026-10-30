@@ -1,0 +1,131 @@
+name: treino
+on: workflow_dispatch
+jobs:
+  # ---------- 1) linha de base: Cartman atual (avaliacao simples) vs Stockfish ----------
+  match:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        elo: [1320, 1500, 1700, 1900, 2100, 2300, 2500, 2700, 2900, 3190]
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get install -y stockfish && pip install python-chess
+      - run: make cartman CFLAGS=-O3
+      - run: PATH=$PATH:/usr/games python match.py ./cartman ${{ matrix.elo }} 100 0.1 | tee out.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: match-${{ matrix.elo }}
+          path: out.txt
+  # ---------- 2) teste de depths ----------
+  teste:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get install -y stockfish && pip install python-chess
+      - run: PATH=$PATH:/usr/games python gen.py 3000 teste.csv 16
+      - uses: actions/upload-artifact@v4
+        with:
+          name: teste
+          path: teste.csv
+          retention-days: 1
+  gen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      matrix:
+        depth: [1, 2, 3, 4, 6, 8, 10, 12, 16]
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get install -y stockfish && pip install python-chess
+      - run: PATH=$PATH:/usr/games python gen.py 3600 dados.csv ${{ matrix.depth }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dados-d${{ matrix.depth }}
+          path: dados.csv
+          retention-days: 1
+  train:
+    needs: [teste, gen]
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        depth: [1, 2, 3, 4, 6, 8, 10, 12, 16]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dados-d${{ matrix.depth }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: teste
+      - run: |
+          pip install python-chess
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          python cmp_train.py dados.csv teste.csv ${{ matrix.depth }} res-${{ matrix.depth }}.txt nnue-d${{ matrix.depth }}.bin
+      - uses: actions/upload-artifact@v4
+        with:
+          name: res-d${{ matrix.depth }}
+          path: |
+            res-${{ matrix.depth }}.txt
+            nnue-d${{ matrix.depth }}.bin
+  # ---------- 3) escolhe o melhor depth sozinho ----------
+  escolher:
+    needs: train
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    outputs:
+      depth: ${{ steps.pick.outputs.depth }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: res-d*
+          merge-multiple: true
+      - id: pick
+        run: |
+          cat res-*.txt | tee -a $GITHUB_STEP_SUMMARY
+          best=$(cat res-*.txt | awk '{split($1,a,"=");split($3,b,"=");print b[2], a[2]}' | sort -g | head -1 | cut -d' ' -f2)
+          echo "melhor depth: $best" | tee -a $GITHUB_STEP_SUMMARY
+          echo "depth=$best" >> $GITHUB_OUTPUT
+  # ---------- 4) geracao grande com o melhor depth ----------
+  gen2:
+    needs: escolher
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    strategy:
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get install -y stockfish && pip install python-chess
+      - run: PATH=$PATH:/usr/games python gen.py 18000 s${{ matrix.shard }}.csv ${{ needs.escolher.outputs.depth }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dados2-${{ matrix.shard }}
+          path: s${{ matrix.shard }}.csv
+          retention-days: 1
+  # ---------- 5) treino final da NNUE ----------
+  final:
+    needs: gen2
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dados2-*
+          merge-multiple: true
+      - run: |
+          pip install python-chess
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          cat s*.csv > all.csv
+          wc -l all.csv
+          python train_nnue.py all.csv nnue.bin
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nnue
+          path: nnue.bin
