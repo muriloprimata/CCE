@@ -11,7 +11,7 @@ jobs:
         elo: [1320, 1500, 1700, 1900, 2100, 2300, 2500, 2700, 2900, 3190]
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get install -y stockfish && pip install python-chess
+      - run: sudo apt-get install -y stockfish && pip install numpy python-chess
       - run: make cartman CFLAGS=-O3
       - run: PATH=$PATH:/usr/games python match.py ./cartman ${{ matrix.elo }} 100 0.1 | tee out.txt
       - uses: actions/upload-artifact@v4
@@ -25,7 +25,7 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get install -y stockfish && pip install python-chess
+      - run: sudo apt-get install -y stockfish && pip install numpy python-chess
       - run: PATH=$PATH:/usr/games python gen.py 3000 teste.csv 16
       - uses: actions/upload-artifact@v4
         with:
@@ -40,7 +40,7 @@ jobs:
         depth: [1, 2, 3, 4, 6, 8, 10, 12, 16]
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get install -y stockfish && pip install python-chess
+      - run: sudo apt-get install -y stockfish && pip install numpy python-chess
       - run: PATH=$PATH:/usr/games python gen.py 3600 dados.csv ${{ matrix.depth }}
       - uses: actions/upload-artifact@v4
         with:
@@ -64,7 +64,7 @@ jobs:
         with:
           name: teste
       - run: |
-          pip install python-chess
+          pip install numpy python-chess
           pip install torch --index-url https://download.pytorch.org/whl/cpu
           python cmp_train.py dados.csv teste.csv ${{ matrix.depth }} res-${{ matrix.depth }}.txt nnue-d${{ matrix.depth }}.bin
       - uses: actions/upload-artifact@v4
@@ -101,7 +101,7 @@ jobs:
         shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get install -y stockfish && pip install python-chess
+      - run: sudo apt-get install -y stockfish && pip install numpy python-chess
       - run: PATH=$PATH:/usr/games python gen.py 18000 s${{ matrix.shard }}.csv ${{ needs.escolher.outputs.depth }}
       - uses: actions/upload-artifact@v4
         with:
@@ -120,7 +120,7 @@ jobs:
           pattern: dados2-*
           merge-multiple: true
       - run: |
-          pip install python-chess
+          pip install numpy python-chess
           pip install torch --index-url https://download.pytorch.org/whl/cpu
           cat s*.csv > all.csv
           wc -l all.csv
